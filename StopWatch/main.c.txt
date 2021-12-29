@@ -1,0 +1,138 @@
+//******************************************************************************************
+//Lab-04-Timers and Interrupts
+//Filename:Lab04.c(Lab04.txt)
+//MicroController:MSP430G2553
+//This file dispalys 7 segment display in decimals using Timers with Interrupts.
+//Date:10/08/2021
+//Sravani Yamasani
+//*******************************************************************************************
+
+#include <msp430g2553.h>
+#include <msp430.h>
+
+void initTimer_A(void);
+void ConfigClock(void);
+
+unsigned int zeroesCount = 0;
+unsigned int onesCount = 0;
+int ISR_COUNT1 = 0;
+int ISR_COUNT2 = 0;
+int switchCount =0;
+#define a BIT0
+#define b BIT1
+#define c BIT2
+#define d BIT4
+#define e BIT5
+#define f BIT6
+#define g BIT7
+
+unsigned int display[10]={a+b+c+d+e+f, b+c, a+b+g+e+d, a+b+g+c+d, f+g+b+c, a+f+g+c+d, a+f+e+d+c+g,
+                              a+b+c, a+b+c+d+e+f+g, a+b+c+d+f+g};
+
+
+void main()
+{
+    WDTCTL = WDTPW + WDTHOLD;   // Watchdog timer
+    P1DIR = a+b+c+d+e+f+g;      // Setting pins of Port 1 as output
+    P2DIR = a+b+c+d+e+f+g;      // Setting pins of Port 2 as output
+    P1IE |=  BIT3;              // P1.3 interrupt enabled
+    P1IES |= BIT3;              // P1.3 Hi/lo edge
+    P1IFG &= ~BIT3;             // P1.3 IFG cleared
+    P1REN |= BIT3;              // Enable Pull Up on SW2 (P1.3)
+    P2SEL &= ~0xC0;             // Selecting mode of Port 2, setting XIN and XOUT as GPIO
+
+
+    ConfigClock();
+    initTimer_A();
+
+    _enable_interrupt();
+
+         //Set up Timers
+        //TimerA0
+        TACCR0 = 1000-1; //Start Timer, Compare value for Up Mode to get 1ms delay per loop
+        /*Total count = TACCR0 + 1. Hence we need to subtract 1.
+        1000 ticks @ 1MHz will yield a delay of 1ms.*/
+
+        while(1)
+            ;
+}
+
+
+void display0(unsigned int valToDisplay){           //Display function for LED 0
+      P2OUT = ~display[valToDisplay];
+}
+
+void display1(unsigned int valToDisplay){           //Display function for LED 1
+      P1OUT = ~display[valToDisplay];
+}
+
+void ConfigClock(void) {
+    //Set MCLK = SMCLK = 1MHz
+        BCSCTL1 = CALBC1_1MHZ;
+        DCOCTL = CALDCO_1MHZ;
+}
+
+void initTimer_A(void) {
+    //Timer Configuration
+    TACCR0 = 0; //Initially, Stop the Timer
+    TACCTL0 |= CCIE; //Enable interrupt for CCR0.
+    TACTL = TASSEL_2 + ID_0 + MC_1; //Select SMCLK, SMCLK/1 , Up Mode
+}
+
+
+//Timer ISR
+#pragma vector = TIMER0_A0_VECTOR
+__interrupt void Timer_A_CCR0_ISR(void) {
+
+    // Checking state of machine
+    switch(switchCount%3){
+
+    //Case No press/3rd press Display 00:
+    case 0:
+        zeroesCount=0;
+        onesCount=0;
+        display0(0);
+        display1(0);
+        break;
+    //case first press: Start stop watch
+    case 1:
+        ISR_COUNT1++;                                   //Incrementing ISR count of LED 0
+        ISR_COUNT2++;                                   //Incrementing ISR count of LED 1
+
+        if (ISR_COUNT1 >= 100) {
+            display0(zeroesCount++%10);
+
+            if(ISR_COUNT2 >= 1000){
+                display1(onesCount++%10);
+                ISR_COUNT2 = 0;
+            } else {
+                display1(onesCount%10);
+            }
+           ISR_COUNT1=0;
+        }
+        break;
+    //Case second press: pause stop watch
+    case 2:
+        display0(zeroesCount%10);
+        display1(onesCount%10);
+        break;
+    }
+
+}
+
+//Port1 ISR
+#pragma vector=PORT1_VECTOR
+__interrupt void port1(void){
+
+    __disable_interrupt();
+    __delay_cycles(1000);
+
+    if(P1IFG & BIT3)                                //Checking for interrupt flag
+        {
+            switchCount++;                          //Increase switchCount when switch is pressed
+        }
+    P1IFG &= ~(BIT3);                               //Clear interrupt flag
+    __enable_interrupt();
+
+}
+
