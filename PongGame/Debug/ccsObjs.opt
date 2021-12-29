@@ -1,0 +1,1 @@
+"./tm4c123gh6pm_startup_ccs.obj" "./Project-8/main.obj" "./source/7segDisplay.obj" "./source/PLL.obj" "./source/ST7735.obj" "./source/adc.obj" "./source/displayLCD.obj" "./source/gpio.obj" "./source/uart.obj" "./source/unitTest.obj" "C:/ti/TivaWare_C_Series-2.2.0.295/driverlib/ccs/Debug/driverlib.lib" "../tm4c123gh6pm.cmd" -llibc.a 
