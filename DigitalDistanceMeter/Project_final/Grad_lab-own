@@ -1,0 +1,145 @@
+/**************************
+ *
+ * @file    main.c
+ *
+ * @brief   This program intends to use timer and switch interrupts to implement a stop-watch.
+ *
+ * @date    Dec 15, 2021
+ *
+ * @author  Vishakha Dixit, Anuradha
+ *
+ **************************/
+
+#include <msp430g2553.h>
+#include <include/gpio.h>
+#include <msp430.h>
+#include <include/timer.h>
+#include <include/gpio.h>
+#include <include/7segDisplay.h>
+#include <include/bcd.h>
+#include <stdbool.h>
+#include <stdint.h>
+
+volatile uint16_t miliseconds;
+volatile long sensor;
+
+static volatile uint8_t SwitchPressCnt = 0;
+
+void main(void)
+{
+    int temp1, temp2, temp3;
+    int distance;
+
+    BCSCTL1 = CALBC1_1MHZ;
+    DCOCTL = CALDCO_1MHZ;                     // submainclock 1mhz
+    WDTCTL = WDTPW + WDTHOLD;                 // Stop WDT
+
+    CCTL0 = CCIE;                             // CCR0 interrupt enabled
+    CCR0 = 1000;                              // 1ms at 1mhz, taking time period as 1ms
+    TACTL = TASSEL_2 + MC_1;                  // SMCLK, upmode
+
+    P1IE |=  BIT3;            // P1.3 interrupt enabled
+    P1IES |= BIT3;            // P1.3 Hi/lo edge
+    P1REN |= BIT3;            // Enable Pull Up on SW2 (P1.3)
+    P1IFG &= ~BIT3;           // P1.3 IFG cleared
+
+    bcdPin_Config_t bcd1;
+
+    bcd1.a = BIT4;
+    bcd1.b = BIT5;
+    bcd1.c = BIT6;
+    bcd1.d = BIT7;
+
+    bcdPin_Config_t bcd2;
+
+    bcd2.a = BIT0;
+    bcd2.b = BIT1;
+    bcd2.c = BIT2;
+    bcd2.d = BIT3;
+
+    bcdDisplay_Init(PORT_1, &bcd1);
+    bcdDisplay_Init(PORT_2, &bcd2);
+
+    P1IFG  = 0x00;                        //clear all interrupt flags
+    _BIS_SR(GIE);                         // global interrupt enable
+
+
+    gpioInit(PORT_1, PIN_3, INPUT);         //Using P1.3 for switch
+    enableGpioInterrput(PORT_1, PIN_3);     //Enable interrupt for switch
+
+
+ while(1)
+{
+    switch (SwitchPressCnt)
+    {
+    case 0:
+    {
+        P1IE &= ~0x01;                  // disable interrupt
+        P1DIR |= 0x02;                  // trigger pin as output
+        P1OUT |= 0x02;                  // generate pulse
+        __delay_cycles(10);             // for 10us
+        P1OUT &= ~0x02;                 // stop pulse
+        P1DIR &= ~0x04;                 // make pin P1.2 input (ECHO)
+        P1IFG = 0x00;                   // clear flag just in case anything happened before
+        P1IE |= 0x04;                   // enable interrupt on ECHO pin
+        P1IES &= ~0x04;                 // rising edge on ECHO pin
+        __delay_cycles(30000);          // delay for 30ms (after this time echo times out if there is no object detected)
+        distance = sensor/58;           // converting ECHO lenght into cm
+        temp1 = distance/10;            // for taking the integer part
+        temp2 = temp1%10;               // LSB
+        temp3 = temp1/10;               // MSB
+        break;
+    }
+
+    case 1:
+    {
+    bcdDisplay_Set(PORT_1, &bcd1, temp3);
+    bcdDisplay_Set(PORT_2, &bcd2, temp2);
+ }
+}
+}
+
+
+#pragma vector=PORT1_VECTOR
+__interrupt void Port_1(void)
+{
+    //Interrupt for ECHO at P1.2
+    if(P1IFG & BIT2)                   //is there interrupt pending?
+    {
+        if(!(P1IES & (BIT2)))          // is this the rising edge? on rising edge start counting in millisecond
+        {
+            TACTL|=TACLR;               // clears timer A
+            miliseconds = 0;
+            P1IES |= BIT2;              //falling edge
+        }
+        else
+        {
+            sensor = (long)miliseconds*1000 + (long)TAR;    //calculating ECHO lenght in us. forumula is echo length in us /58 for cms.
+
+        }
+
+        P1IFG &= ~(BIT2);             //clear flag
+    }
+
+    //Interrupt for switch at P1.3
+    if(P1IFG & BIT3)
+    {
+        SwitchPressCnt == 1;
+
+        __delay_cycles(1000);   //To compensate for button bounce
+    }
+
+    P1IFG &= ~(BIT3);
+   // __enable_interrupt();
+}
+
+#pragma vector=TIMER0_A0_VECTOR
+__interrupt void Timer_A (void)
+{
+    __disable_interrupt();
+
+    miliseconds++;      // for 1 ms it will call this interrupt and then increment it.
+
+    TA0CCTL1 &= ~(CCIFG);
+    __enable_interrupt();
+}
